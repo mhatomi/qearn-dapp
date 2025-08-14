@@ -16,7 +16,7 @@ export const unLockQubic = async (sourceID: string, amount: number, epoch: numbe
     { data: amount, type: "bigint64" },
     { data: epoch, type: "uint32" },
   ]);
-  return await createSCTx(sourceID, 9, 2, payload.getPackageSize(), 0, tick, payload);
+  return await createSCTx(sourceID, 9, 2, payload.getPackageSize(), 1, tick, payload);
 };
 
 // Query
