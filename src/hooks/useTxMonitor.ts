@@ -2,15 +2,13 @@ import { useEffect, useState } from "react";
 import { useAtom } from "jotai";
 import { toast } from "react-hot-toast";
 import { getUserLockInfo } from "@/services/qearn.service";
-import { fetchBalance, fetchTickEvents, fetchTxStatus } from "@/services/rpc.service";
+import { fetchBalance, fetchTxStatus } from "@/services/rpc.service";
 import { balancesAtom } from "@/store/balances";
 import { IPendingTx, pendingTxAtom } from "@/store/pendingTx";
 import { tickInfoAtom } from "@/store/tickInfo";
 import { userLockInfoAtom } from "@/store/userLockInfo";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { useLog } from "./useLog";
-import useLogModal from "./useLogModal";
 
 const useTxMonitor = () => {
   const [tickInfo] = useAtom(tickInfoAtom);
@@ -20,49 +18,24 @@ const useTxMonitor = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { formatQearnLog } = useLog();
-  const { openModal } = useLogModal();
 
   const checkTxResult = async () => {
     if (!isMonitoring || !tickInfo?.tick || !pendingTx?.targetTick) return;
 
     if (tickInfo.tick > pendingTx.targetTick) {
-      setPendingTx({} as IPendingTx);
+      if (tickInfo.tick > pendingTx.targetTick + 15) {
+        toast.error(t("toast.Transaction failed"));
+        setIsMonitoring(false);
+        setPendingTx({} as IPendingTx);
+        return;
+      }
 
       if (pendingTx.type === "qearn") {
-        let tickEvents;
-        while (!tickEvents?.tick) {
-          try {
-            tickEvents = await fetchTickEvents(pendingTx.targetTick);
-          } catch (error) {
-            console.error("Failed to fetch tick events, retrying...", error);
-          }
-        }
-
-        const qearnLog = await formatQearnLog(tickEvents);
-        if (tickEvents.txEvents?.length && qearnLog.length) {
-          try {
-            if (
-              qearnLog[0].type == "SUCCESS_LOCKING" ||
-              qearnLog[0].type == "SUCCESS_FULLY_UNLOCKING" ||
-              qearnLog[0].type == "SUCCESS_EARLY_UNLOCKING"
-            ) {
-              toast.success(pendingTx.amount > 0 ? t("toast.Locked successfully") : t("toast.Unlocked successfully"));
-              openModal(qearnLog);
-            } else if (
-              qearnLog[0].type == "FAILED_TRANSFER" ||
-              qearnLog[0].type == "LIMIT_LOCKING" ||
-              qearnLog[0].type == "OVERFLOW_USER" ||
-              qearnLog[0].type == "INVALID_INPUT"
-            ) {
-              toast.error(t("toast.Transaction failed"));
-              openModal(qearnLog);
-            }
-          } catch (err) {
-            console.error(err);
-          }
+        const lockedAmount = await getUserLockInfo(pendingTx.publicId, pendingTx.epoch);
+        if (lockedAmount - pendingTx.initAmount === pendingTx.amount) {
+          toast.success(pendingTx.amount > 0 ? t("toast.Locked successfully") : t("toast.Unlocked successfully"));
         } else {
-          toast.error(t("toast.Transaction failed"));
+          return;
         }
         const updatedLockAmount = await getUserLockInfo(pendingTx.publicId, pendingTx.epoch);
         if (updatedLockAmount == 0) {
@@ -91,15 +64,9 @@ const useTxMonitor = () => {
           navigate("/home?tab=0");
         }
       } else if (pendingTx.type === "transfer") {
-        let txStatus;
-        while (!txStatus) {
-          try {
-            txStatus = await fetchTxStatus(pendingTx.txId);
-          } catch (error) {
-            console.error("Failed to fetch tx status, retrying...", error);
-          }
-        }
+        const txStatus = await fetchTxStatus(pendingTx.txId);
         if (txStatus?.moneyFlew) {
+
           toast.success(t("toast.Transferred successfully"));
         } else {
           return;
@@ -107,6 +74,7 @@ const useTxMonitor = () => {
       }
       const updatedBalance = await fetchBalance(pendingTx.publicId);
       setBalance([updatedBalance]);
+      setPendingTx({} as IPendingTx);
       setIsMonitoring(false);
     }
   };
