@@ -66,7 +66,7 @@ const useDataFetcher = () => {
         const {balance: totalLockAmount} = await fetchBalance(QEARN_SC_ADDRESS);
         
         // Reduce the number of epochs to fetch (from 53 to 20) to reduce load
-        const epochsToFetch = Math.min(20, epoch.current - QEARN_START_EPOCH + 1);
+        const epochsToFetch = Math.min(53, epoch.current - QEARN_START_EPOCH + 1);
         const startEpoch = Math.max(QEARN_START_EPOCH, epoch.current - epochsToFetch + 1);
         
         console.log(`[DataFetcher] Fetching ${epochsToFetch} epochs from ${startEpoch} to ${epoch.current}`);

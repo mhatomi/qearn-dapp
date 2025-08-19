@@ -18,7 +18,7 @@ let queryQueue: Array<{
   reject: (error: any) => void;
 }> = [];
 let isProcessing = false;
-const RATE_LIMIT_DELAY = 100; // 100ms between requests
+const RATE_LIMIT_DELAY = 500; // 500ms between requests
 const BATCH_SIZE = 5; // Process 5 requests at a time
 
 // Monitoring stats
@@ -74,9 +74,9 @@ export const getQueryStats = () => ({
 });
 
 // Direct implementation without rate limiting (for internal use)
-const fetchQuerySCDirect = async (query: IQuerySC, retryCount = 0): Promise<IQuerySCResponse> => {
+const fetchQuerySCDirect = async (query: IQuerySC, retryCount = 0, noCache = false): Promise<IQuerySCResponse> => {
   try {
-    const queryResult = await fetch(`${RPC_ENDPOINT}/v1/querySmartContract?no-cache=${Date.now()}`, {
+    const queryResult = await fetch(`${RPC_ENDPOINT}/v1/querySmartContract${noCache ? `?no-cache=${Date.now()}` : ''}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
