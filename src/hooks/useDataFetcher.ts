@@ -58,64 +58,99 @@ const useDataFetcher = () => {
     }, 1000);
   }, [setCloseTime]);
 
-  // Fetch epoch lock data
+  // Fetch epoch lock data with reduced frequency and better batching
   useEffect(() => {
     const fetchEpochData = async () => {
-      const {balance: totalLockAmount} = await fetchBalance(QEARN_SC_ADDRESS);
-      const lockInfoPromises = [];
-      for (let i = epoch.current; i >= epoch.current - 52; i--) {
-        if (i < QEARN_START_EPOCH) continue;
-        lockInfoPromises.push(getLockInfoPerEpoch(i));
-      }
-
-      const lockInfoResults = await Promise.all(lockInfoPromises);
-
-      const burnedAndBoostedStatsPromises = [];
-      for (let i = epoch.current; i >= epoch.current - 52; i--) {
-        if (i < QEARN_START_EPOCH) continue;
-        burnedAndBoostedStatsPromises.push(getBurnedAndBoostedStatsPerEpoch(i));
-      }
-
-      const burnedAndBoostedStatsResults = await Promise.all(burnedAndBoostedStatsPromises);
-
-      const newStats = lockInfoResults.reduce<
-        Record<number, any> & {
-          totalInitialLockAmount: number;
-          totalInitialBonusAmount: number;
-          totalLockAmount: number;
-          totalBonusAmount: number;
-          averageYieldPercentage: number;
+      try {
+        console.log('[DataFetcher] Starting epoch data fetch');
+        const {balance: totalLockAmount} = await fetchBalance(QEARN_SC_ADDRESS);
+        
+        // Reduce the number of epochs to fetch (from 53 to 20) to reduce load
+        const epochsToFetch = Math.min(20, epoch.current - QEARN_START_EPOCH + 1);
+        const startEpoch = Math.max(QEARN_START_EPOCH, epoch.current - epochsToFetch + 1);
+        
+        console.log(`[DataFetcher] Fetching ${epochsToFetch} epochs from ${startEpoch} to ${epoch.current}`);
+        
+        const lockInfoPromises = [];
+        const burnedAndBoostedStatsPromises = [];
+        
+        for (let i = epoch.current; i >= startEpoch; i--) {
+          lockInfoPromises.push(getLockInfoPerEpoch(i));
+          burnedAndBoostedStatsPromises.push(getBurnedAndBoostedStatsPerEpoch(i));
         }
-      >(
-        (acc, epochLockInfo, index) => {
-          if (epochLockInfo) {
-            acc[epoch.current - index] = { ...epochLockInfo, ...burnedAndBoostedStatsResults[index] };
-            acc.totalInitialLockAmount += epochLockInfo.lockAmount;
-            acc.totalInitialBonusAmount += epochLockInfo.bonusAmount;
-            // acc.totalLockAmount += epochLockInfo.currentLockedAmount;
-            acc.totalBonusAmount += epochLockInfo.currentBonusAmount;
-            if (index !== 0)
-              acc.averageYieldPercentage =
-                ((acc.averageYieldPercentage || 0) * (index - 1) + epochLockInfo.yieldPercentage) / index;
+
+        // Process in smaller batches to avoid overwhelming the server
+        const batchSize = 5;
+        const lockInfoResults: any[] = [];
+        const burnedAndBoostedStatsResults: any[] = [];
+        
+        for (let i = 0; i < lockInfoPromises.length; i += batchSize) {
+          const lockBatch = lockInfoPromises.slice(i, i + batchSize);
+          const burnedBatch = burnedAndBoostedStatsPromises.slice(i, i + batchSize);
+          
+          console.log(`[DataFetcher] Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(lockInfoPromises.length / batchSize)}`);
+          
+          const [lockBatchResults, burnedBatchResults] = await Promise.all([
+            Promise.all(lockBatch),
+            Promise.all(burnedBatch)
+          ]);
+          
+          lockInfoResults.push(...lockBatchResults);
+          burnedAndBoostedStatsResults.push(...burnedBatchResults);
+          
+          // Add a small delay between batches
+          if (i + batchSize < lockInfoPromises.length) {
+            console.log('[DataFetcher] Waiting 200ms before next batch');
+            await new Promise(resolve => setTimeout(resolve, 200));
           }
-          return acc;
-        },
-        {
-          totalInitialLockAmount: 0,
-          totalInitialBonusAmount: 0,
-          totalLockAmount: 0,
-          totalBonusAmount: 0,
-          averageYieldPercentage: 0,
-        },
-      );
-      newStats.totalLockAmount = Number(totalLockAmount);
-      setQearnStats((prev) => ({
-        ...prev,
-        ...newStats,
-      }));
+        }
+
+        console.log('[DataFetcher] Processing epoch data results');
+        const newStats = lockInfoResults.reduce<
+          Record<number, any> & {
+            totalInitialLockAmount: number;
+            totalInitialBonusAmount: number;
+            totalLockAmount: number;
+            totalBonusAmount: number;
+            averageYieldPercentage: number;
+          }
+        >(
+          (acc, epochLockInfo, index) => {
+            if (epochLockInfo) {
+              const currentEpoch = epoch.current - index;
+              acc[currentEpoch] = { ...epochLockInfo, ...burnedAndBoostedStatsResults[index] };
+              acc.totalInitialLockAmount += epochLockInfo.lockAmount;
+              acc.totalInitialBonusAmount += epochLockInfo.bonusAmount;
+              acc.totalBonusAmount += epochLockInfo.currentBonusAmount;
+              if (index !== 0)
+                acc.averageYieldPercentage =
+                  ((acc.averageYieldPercentage || 0) * (index - 1) + epochLockInfo.yieldPercentage) / index;
+            }
+            return acc;
+          },
+          {
+            totalInitialLockAmount: 0,
+            totalInitialBonusAmount: 0,
+            totalLockAmount: 0,
+            totalBonusAmount: 0,
+            averageYieldPercentage: 0,
+          },
+        );
+        newStats.totalLockAmount = Number(totalLockAmount);
+        setQearnStats((prev) => ({
+          ...prev,
+          ...newStats,
+        }));
+        console.log('[DataFetcher] Epoch data fetch completed successfully');
+      } catch (error) {
+        console.error('Error fetching epoch data:', error);
+      }
     };
 
-    fetchEpochData();
+    // Only fetch epoch data when epoch changes, not on every tick
+    if (epoch.current) {
+      fetchEpochData();
+    }
   }, [epoch.current, setQearnStats]);
 
   // Fetch wallet balance when wallet changes
@@ -129,23 +164,49 @@ const useDataFetcher = () => {
     setUserAccount();
   }, [wallet, setBalance]);
 
-  // Fetch user lock data
+  // Fetch user lock data with reduced frequency
   useEffect(() => {
     if (!balances.length || !epoch.current) return;
+    
     const fetchUserLockData = async () => {
-      const lockEpochs = await getUserLockStatus(balances[0].id, epoch.current);
-      lockEpochs.forEach(async (epoch) => {
-        const lockedAmount = await getUserLockInfo(balances[0].id, epoch);
-        setUserLockInfo((prev) => ({
-          ...prev,
-          [balances[0].id]: {
-            ...prev[balances[0].id],
-            [epoch]: lockedAmount,
-          },
-        }));
-      });
+      try {
+        const lockEpochs = await getUserLockStatus(balances[0].id, epoch.current);
+        
+        // Process user lock data in batches
+        const batchSize = 3;
+        for (let i = 0; i < lockEpochs.length; i += batchSize) {
+          const batch = lockEpochs.slice(i, i + batchSize);
+          const batchPromises = batch.map(async (epoch) => {
+            const lockedAmount = await getUserLockInfo(balances[0].id, epoch);
+            return { epoch, lockedAmount };
+          });
+          
+          const batchResults = await Promise.all(batchPromises);
+          
+          setUserLockInfo((prev) => {
+            const newState = { ...prev };
+            batchResults.forEach(({ epoch, lockedAmount }) => {
+              if (!newState[balances[0].id]) {
+                newState[balances[0].id] = {};
+              }
+              newState[balances[0].id][epoch] = lockedAmount;
+            });
+            return newState;
+          });
+          
+          // Add delay between batches
+          if (i + batchSize < lockEpochs.length) {
+            await new Promise(resolve => setTimeout(resolve, 150));
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user lock data:', error);
+      }
     };
-    fetchUserLockData();
+    
+    // Only fetch user lock data every 30 seconds instead of on every balance/epoch change
+    const timeoutId = setTimeout(fetchUserLockData, 30000);
+    return () => clearTimeout(timeoutId);
   }, [balances, epoch.current, setUserLockInfo]);
 };
 
