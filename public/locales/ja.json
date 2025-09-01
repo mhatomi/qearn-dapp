@@ -244,6 +244,15 @@
     "Transferred successfully": "転送が成功しました",
     "Sign the transaction in your wallet": "トランザクションをウォレットで確認してください"
   },
+  "loading": {
+    "Loading Qearn Data": "Qearn データを読み込んでいます",
+    "Fetching the latest blockchain data and statistics...": "最新のブロックチェーンデータと統計情報を取得しています...",
+    "Loading...": "読み込んでいます...",
+    "Please wait while we fetch the latest data": "最新のデータを取得しています。しばらくお待ちください...",
+    "Rate limit exceeded. Please try again in 1-2 minutes.": "リクエスト制限を超えました。1-2分後に再度お試しください。",
+    "Some data could not be loaded. Showing available information.": "一部のデータを読み込めませんでした。利用可能な情報を表示します。",
+    "Minor connection issues detected. Data may be incomplete.": "軽度の接続問題が検出されました。データが不完全かもしれません。"
+  },
   "transferForm": {
     "Transfer $QUBIC": "QUBIC を転送",
     "Recipient Address": "受取人のアドレス",

@@ -6,6 +6,7 @@ import { latestStatsAtom } from "@/store/latestStats";
 import { balancesAtom } from "@/store/balances";
 import { closeTimeAtom } from "@/store/closeTime";
 import { userLockInfoAtom } from "@/store/userLockInfo";
+import { loadingAtom } from "@/store/loading";
 import { useQubicConnect } from "@/components/connect/QubicConnectContext";
 import { useFetchTickInfo } from "@/hooks/useFetchTickInfo";
 import {
@@ -31,25 +32,63 @@ const useDataFetcher = () => {
   const [, setCloseTime] = useAtom(closeTimeAtom);
   const [, setUserLockInfo] = useAtom(userLockInfoAtom);
   const [balances, setBalance] = useAtom(balancesAtom);
+  const [, setLoading] = useAtom(loadingAtom);
   const { wallet } = useQubicConnect();
+  const hasInitialLoad = useRef(false);
 
   // Fetch tick info every 2 seconds
   useEffect(() => {
-    intervalRef.current = setInterval(async () => {
-      const { data } = await refetchTickInfo();
-      if (data && data?.tick) {
-        setTickInfo(data);
-        epoch.current = data.epoch;
+    const fetchTickData = async () => {
+      setLoading(prev => ({ ...prev, isTickInfoLoading: true }));
+      try {
+        const { data } = await refetchTickInfo();
+        if (data && data?.tick) {
+          setTickInfo(data);
+          epoch.current = data.epoch;
+        }
+      } catch (error) {
+        console.error('Error fetching tick info:', error);
+        setLoading(prev => ({ 
+          ...prev, 
+          fetchErrors: [...prev.fetchErrors, {
+            message: 'Failed to fetch tick info',
+            timestamp: Date.now(),
+            context: 'tickInfo'
+          }] 
+        }));
+      } finally {
+        setLoading(prev => ({ ...prev, isTickInfoLoading: false }));
       }
-    }, 4000);
+    };
+
+    // Initial fetch
+    fetchTickData();
+
+    intervalRef.current = setInterval(fetchTickData, 4000);
 
     return () => clearInterval(intervalRef.current!);
-  }, [refetchTickInfo, setTickInfo]);
+  }, [refetchTickInfo, setTickInfo, setLoading]);
 
   // Fetch latest stats once on mount
   useEffect(() => {
-    fetchLatestStats().then(setLatestStats);
-  }, [setLatestStats]);
+    const fetchStats = async () => {
+      try {
+        const stats = await fetchLatestStats();
+        setLatestStats(stats);
+      } catch (error) {
+        console.error('Error fetching latest stats:', error);
+        setLoading(prev => ({ 
+          ...prev, 
+          fetchErrors: [...prev.fetchErrors, {
+            message: 'Failed to fetch latest stats',
+            timestamp: Date.now(),
+            context: 'latestStats'
+          }] 
+        }));
+      }
+    };
+    fetchStats();
+  }, [setLatestStats, setLoading]);
 
   // Update close time every second
   useEffect(() => {
@@ -61,6 +100,13 @@ const useDataFetcher = () => {
   // Fetch epoch lock data with reduced frequency and better batching
   useEffect(() => {
     const fetchEpochData = async () => {
+      setLoading(prev => ({ 
+        ...prev, 
+        isEpochDataLoading: true,
+        isInitialLoading: !hasInitialLoad.current,
+        isDataFetching: true
+      }));
+      
       try {
         console.log('[DataFetcher] Starting epoch data fetch');
         const {balance: totalLockAmount} = await fetchBalance(QEARN_SC_ADDRESS);
@@ -70,6 +116,17 @@ const useDataFetcher = () => {
         const startEpoch = Math.max(QEARN_START_EPOCH, epoch.current - epochsToFetch + 1);
         
         console.log(`[DataFetcher] Fetching ${epochsToFetch} epochs from ${startEpoch} to ${epoch.current}`);
+        
+        setLoading(prev => ({ 
+          ...prev, 
+          loadingProgress: {
+            current: 0,
+            total: epochsToFetch * 2,
+            message: "Fetching epoch data...",
+            failed: 0,
+            succeeded: 0
+          }
+        }));
         
         const lockInfoPromises = [];
         const burnedAndBoostedStatsPromises = [];
@@ -83,20 +140,90 @@ const useDataFetcher = () => {
         const batchSize = 5;
         const lockInfoResults: any[] = [];
         const burnedAndBoostedStatsResults: any[] = [];
+        let processedCount = 0;
+        let failedCount = 0;
+        let succeededCount = 0;
         
         for (let i = 0; i < lockInfoPromises.length; i += batchSize) {
           const lockBatch = lockInfoPromises.slice(i, i + batchSize);
           const burnedBatch = burnedAndBoostedStatsPromises.slice(i, i + batchSize);
           
-          console.log(`[DataFetcher] Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(lockInfoPromises.length / batchSize)}`);
+          const batchNumber = Math.floor(i / batchSize) + 1;
+          const totalBatches = Math.ceil(lockInfoPromises.length / batchSize);
           
-          const [lockBatchResults, burnedBatchResults] = await Promise.all([
-            Promise.all(lockBatch),
-            Promise.all(burnedBatch)
-          ]);
+          console.log(`[DataFetcher] Processing batch ${batchNumber}/${totalBatches}`);
           
-          lockInfoResults.push(...lockBatchResults);
-          burnedAndBoostedStatsResults.push(...burnedBatchResults);
+          setLoading(prev => ({ 
+            ...prev, 
+            loadingProgress: {
+              ...prev.loadingProgress,
+              current: processedCount,
+              message: `Processing batch ${batchNumber}/${totalBatches}...`,
+              failed: failedCount,
+              succeeded: succeededCount
+            }
+          }));
+          
+          try {
+            const [lockBatchResults, burnedBatchResults] = await Promise.all([
+              Promise.allSettled(lockBatch),
+              Promise.allSettled(burnedBatch)
+            ]);
+            
+            // Process lock info results
+            lockBatchResults.forEach((result, index) => {
+              if (result.status === 'fulfilled') {
+                lockInfoResults.push(result.value);
+                succeededCount++;
+              } else {
+                lockInfoResults.push(null);
+                failedCount++;
+                console.error(`Failed to fetch lock info for epoch ${epoch.current - i - index}:`, result.reason);
+                setLoading(prev => ({ 
+                  ...prev, 
+                  fetchErrors: [...prev.fetchErrors, {
+                    message: `Failed to fetch lock info for epoch ${epoch.current - i - index}`,
+                    timestamp: Date.now(),
+                    context: 'lockInfo'
+                  }]
+                }));
+              }
+            });
+            
+            // Process burned and boosted results
+            burnedBatchResults.forEach((result, index) => {
+              if (result.status === 'fulfilled') {
+                burnedAndBoostedStatsResults.push(result.value);
+                succeededCount++;
+              } else {
+                burnedAndBoostedStatsResults.push(null);
+                failedCount++;
+                console.error(`Failed to fetch burned/boosted stats for epoch ${epoch.current - i - index}:`, result.reason);
+                setLoading(prev => ({ 
+                  ...prev, 
+                  fetchErrors: [...prev.fetchErrors, {
+                    message: `Failed to fetch burned/boosted stats for epoch ${epoch.current - i - index}`,
+                    timestamp: Date.now(),
+                    context: 'burnedBoosted'
+                  }]
+                }));
+              }
+            });
+            
+          } catch (error) {
+            console.error(`Batch ${batchNumber} failed completely:`, error);
+            failedCount += lockBatch.length * 2;
+            setLoading(prev => ({ 
+              ...prev, 
+              fetchErrors: [...prev.fetchErrors, {
+                message: `Batch ${batchNumber} failed completely`,
+                timestamp: Date.now(),
+                context: 'batch'
+              }]
+            }));
+          }
+          
+          processedCount += lockBatch.length * 2;
           
           // Add a small delay between batches
           if (i + batchSize < lockInfoPromises.length) {
@@ -105,7 +232,20 @@ const useDataFetcher = () => {
           }
         }
 
-        console.log('[DataFetcher] Processing epoch data results');
+        setLoading(prev => ({ 
+          ...prev, 
+          loadingProgress: {
+            ...prev.loadingProgress,
+            current: processedCount,
+            message: failedCount > 0 
+              ? "Processing results with some connection issues..." 
+              : "Processing results...",
+            failed: failedCount,
+            succeeded: succeededCount
+          }
+        }));
+
+        console.log(`[DataFetcher] Processing epoch data results - ${succeededCount} succeeded, ${failedCount} failed`);
         const newStats = lockInfoResults.reduce<
           Record<number, any> & {
             totalInitialLockAmount: number;
@@ -116,7 +256,7 @@ const useDataFetcher = () => {
           }
         >(
           (acc, epochLockInfo, index) => {
-            if (epochLockInfo) {
+            if (epochLockInfo && burnedAndBoostedStatsResults[index]) {
               const currentEpoch = epoch.current - index;
               acc[currentEpoch] = { ...epochLockInfo, ...burnedAndBoostedStatsResults[index] };
               acc.totalInitialLockAmount += epochLockInfo.lockAmount;
@@ -141,9 +281,64 @@ const useDataFetcher = () => {
           ...prev,
           ...newStats,
         }));
-        console.log('[DataFetcher] Epoch data fetch completed successfully');
+        hasInitialLoad.current = true;
+        
+        // Show error notification if there were failures but still successful data
+        if (failedCount > 0 && succeededCount > 0) {
+          console.warn(`[DataFetcher] Completed with partial failures: ${succeededCount} succeeded, ${failedCount} failed`);
+          setLoading(prev => ({ 
+            ...prev, 
+            shouldShowErrors: true
+          }));
+        } else if (failedCount > 0) {
+          console.error(`[DataFetcher] All requests failed: ${failedCount} failed`);
+        } else {
+          console.log('[DataFetcher] Epoch data fetch completed successfully');
+        }
+        
       } catch (error) {
-        console.error('Error fetching epoch data:', error);
+        console.error('Error in fetchEpochData:', error);
+        setLoading(prev => ({ 
+          ...prev, 
+          fetchErrors: [...prev.fetchErrors, {
+            message: 'Critical error in data fetching process',
+            timestamp: Date.now(),
+            context: 'fetchEpochData'
+          }],
+          shouldShowErrors: true
+        }));
+      } finally {
+        // Only close loading if we have either succeeded completely or failed completely
+        // Keep loading open if we have partial data to show progress
+        setLoading(prev => ({ 
+          ...prev, 
+          isEpochDataLoading: false,
+          isInitialLoading: false,
+          isDataFetching: false,
+          loadingProgress: {
+            current: prev.loadingProgress.total,
+            total: prev.loadingProgress.total,
+            message: prev.loadingProgress.failed > 0 
+              ? "Completed with some connection issues"
+              : "Loading completed successfully",
+            failed: prev.loadingProgress.failed,
+            succeeded: prev.loadingProgress.succeeded
+          }
+        }));
+        
+        // Clear the loading progress after a brief delay to show final status
+        setTimeout(() => {
+          setLoading(prev => ({ 
+            ...prev, 
+            loadingProgress: {
+              current: 0,
+              total: 0,
+              message: "",
+              failed: 0,
+              succeeded: 0
+            }
+          }));
+        }, 2000);
       }
     };
 
@@ -151,7 +346,7 @@ const useDataFetcher = () => {
     if (epoch.current) {
       fetchEpochData();
     }
-  }, [epoch.current, setQearnStats]);
+  }, [epoch.current, setQearnStats, setLoading]);
 
   // Fetch wallet balance when wallet changes
   useEffect(() => {
@@ -169,6 +364,8 @@ const useDataFetcher = () => {
     if (!balances.length || !epoch.current) return;
     
     const fetchUserLockData = async () => {
+      setLoading(prev => ({ ...prev, isUserDataLoading: true }));
+      
       try {
         const lockEpochs = await getUserLockStatus(balances[0].id, epoch.current);
         
@@ -201,13 +398,23 @@ const useDataFetcher = () => {
         }
       } catch (error) {
         console.error('Error fetching user lock data:', error);
+        setLoading(prev => ({ 
+          ...prev, 
+          fetchErrors: [...prev.fetchErrors, {
+            message: 'Failed to fetch user lock data',
+            timestamp: Date.now(),
+            context: 'userLockData'
+          }] 
+        }));
+      } finally {
+        setLoading(prev => ({ ...prev, isUserDataLoading: false }));
       }
     };
     
     // Only fetch user lock data every 30 seconds instead of on every balance/epoch change
     const timeoutId = setTimeout(fetchUserLockData, 30000);
     return () => clearTimeout(timeoutId);
-  }, [balances, epoch.current, setUserLockInfo]);
+  }, [balances, epoch.current, setUserLockInfo, setLoading]);
 };
 
 export default useDataFetcher;

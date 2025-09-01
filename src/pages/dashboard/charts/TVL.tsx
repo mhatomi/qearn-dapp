@@ -1,5 +1,6 @@
 import { EChart } from "@kbox-labs/react-echarts";
 import Card from "@/components/ui/Card";
+import LoadingStateWrapper from "@/components/ui/LoadingStateWrapper";
 import { TitleComponent, TooltipComponent, LegendComponent } from "echarts/components";
 import { PieChart } from "echarts/charts";
 import { LabelLayout } from "echarts/features";
@@ -59,15 +60,23 @@ const TVL: React.FC = () => {
 
   const chartComponents = [TitleComponent, TooltipComponent, LegendComponent, PieChart, SVGRenderer, LabelLayout];
 
+  const hasData = qearnStats && Object.keys(qearnStats).length > 0 && qearnStats.totalLockAmount > 0;
+
   return (
     <Card className="max-w-lg p-4">
-      <EChart
-        style={{ width: isMobile ? "280px" : "400px", height: isMobile ? "360px" : "400px" }}
-        key={settings.darkMode ? "dark" : "light"}
-        theme={settings.darkMode ? dark : light}
-        use={chartComponents}
-        {...option}
-      />
+      <LoadingStateWrapper
+        hasData={hasData}
+        variant="chart"
+        className="w-full h-96"
+      >
+        <EChart
+          style={{ width: isMobile ? "280px" : "400px", height: isMobile ? "360px" : "400px" }}
+          key={settings.darkMode ? "dark" : "light"}
+          theme={settings.darkMode ? dark : light}
+          use={chartComponents}
+          {...option}
+        />
+      </LoadingStateWrapper>
     </Card>
   );
 };
