@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useAtom } from "jotai";
 import Card from "../../../components/ui/Card";
 import AccountSelector from "../../../components/ui/AccountSelector";
+import SkeletonLoader from "../../../components/ui/SkeletonLoader";
 import {
   createColumnHelper,
   flexRender,
@@ -16,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import UnlockAmountSettingModal from "./UnlockAmountSettingModal";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import { useLockHistory } from "@/hooks/useLockHistory";
+import { loadingAtom } from "@/store/loading";
 
 interface ITableData {
   lockedEpoch: number;
@@ -35,7 +38,7 @@ const LockHistoryTable: React.FC = () => {
   } = useDisclosure();
   const { open: reminderOpen, onOpen: onReminderOpen, onClose: onReminderClose } = useDisclosure();
   const [unlockAmount, setUnlockAmount] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading] = useAtom(loadingAtom);
   const { t } = useTranslation();
 
   const {
@@ -49,13 +52,6 @@ const LockHistoryTable: React.FC = () => {
     setSelectedIdx,
     handleUnlockEarly,
   } = useLockHistory();
-
-  useEffect(() => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 1000);
-  }, []);
 
   const columnHelper = createColumnHelper<ITableData>();
   const lockedColumns = [
@@ -132,10 +128,8 @@ const LockHistoryTable: React.FC = () => {
           setSelected={setSelectedAccount}
         />
 
-        {isLoading ? (
-          <div className="flex justify-center p-8">
-            <div className="h-8 w-8 animate-spin rounded-full border-t-2 border-foreground"></div>
-          </div>
+        { loading.isUserDataLoading ? (
+          <SkeletonLoader variant="table" lines={5} className="p-4" />
         ) : (
           <div className="w-full overflow-x-auto">
             <table className="overflow-x-auto rounded-lg border border-card-border">

@@ -244,6 +244,15 @@
     "Transferred successfully": "Перевод успешно выполнен",
     "Sign the transaction in your wallet": "Подтвердите транзакцию в вашем кошельке"
   },
+  "loading": {
+    "Loading Qearn Data": "Загрузка данных Qearn",
+    "Fetching the latest blockchain data and statistics...": "Загрузка последних данных блокчейна и статистики...",
+    "Loading...": "Загрузка...",
+    "Please wait while we fetch the latest data": "Пожалуйста, подождите, пока мы загрузим последние данные...",
+    "Rate limit exceeded. Please try again in 1-2 minutes.": "Превышен лимит запросов. Пожалуйста, попробуйте снова через 1-2 минуты.",
+    "Some data could not be loaded. Showing available information.": "Некоторые данные не могут быть загружены. Показать доступные информации.",
+    "Minor connection issues detected. Data may be incomplete.": "Обнаружены незначительные проблемы с подключением. Данные могут быть неполными."
+  },
   "transferForm": {
     "Transfer $QUBIC": "Перевести $QUBIC",
     "Recipient Address": "Адрес получателя",
