@@ -47,7 +47,7 @@ export function QubicConnectProvider({ children }: QubicConnectProviderProps) {
   const [connected, setConnected] = useState<boolean>(false);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [showConnectModal, setShowConnectModal] = useState<boolean>(false);
-  const { signTransaction } = useWalletConnect();
+  const { signTransaction, disconnect: disconnectWalletConnect } = useWalletConnect();
   const { t } = useTranslation();
   const [state, dispatch] = useContext(MetaMaskContext);
   const [, setBalances] = useAtom(balancesAtom);
@@ -65,7 +65,25 @@ export function QubicConnectProvider({ children }: QubicConnectProviderProps) {
     setWallet(null);
     setConnected(false);
     setBalances([]);
+    disconnectWalletConnect();
   };
+
+  // Listen for WalletConnect session deletion
+  React.useEffect(() => {
+    const handleWalletConnectSessionDelete = () => {
+      if (connected) {
+        localStorage.removeItem("wallet");
+        setWallet(null);
+        setConnected(false);
+      }
+    };
+
+    window.addEventListener("walletconnect-session-deleted", handleWalletConnectSessionDelete);
+
+    return () => {
+      window.removeEventListener("walletconnect-session-deleted", handleWalletConnectSessionDelete);
+    };
+  }, [connected]);
 
   const toggleConnectModal = (): void => {
     setShowConnectModal(!showConnectModal);

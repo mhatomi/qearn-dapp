@@ -201,12 +201,16 @@ export function WalletConnectProvider({ children }: WalletConnectProviderProps) 
         setSessionTopic("");
         setIsConnected(false);
         localStorage.removeItem("sessionTopic");
+        // Dispatch a custom event to notify QubicConnect
+        window.dispatchEvent(new CustomEvent("walletconnect-session-deleted"));
       });
 
       client.on("session_expire", () => {
         setSessionTopic("");
         setIsConnected(false);
         localStorage.removeItem("sessionTopic");
+        // Dispatch a custom event to notify QubicConnect
+        window.dispatchEvent(new CustomEvent("walletconnect-session-deleted"));
       });
     });
   }, []);
