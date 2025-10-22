@@ -152,6 +152,7 @@ export function WalletConnectProvider({ children }: WalletConnectProviderProps) 
             inputType: params.inputType,
             payload: params.payload,
             nonce: Date.now().toString(),
+            tick: params.tick,
           },
         },
       });
